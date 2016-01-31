@@ -1,0 +1,117 @@
+---
+title: "Human Activity Recognition"
+author: "Suman Machado"
+date: "Friday, January 29, 2016"
+output: html_document
+---
+
+#Executive Summary
+
+Human activity recognition research traditional focused on discriminating between different activities. This assignment uses the weight lifting dataset and the goal is to determine "how well" the activity is performed. 
+
+The data for this project come from this source: http://groupware.les.inf.puc-rio.br/har. The collected data is from accelerometers on the belt, forearm, arm, and dumbell of 6 participants. They were asked to perform barbell lifts correctly and incorrectly in 5 different ways. The goal of this project is to predict the manner in which they did the exercises using the "classe" variable in the training set. 
+
+#Loading and summarizing the data
+
+These are the dimensions of the dataset and a summary of the "classe" variable
+
+```{r, echo=FALSE, warning=FALSE, message=FALSE}
+train <- read.csv("pml-training.csv", header=TRUE, na.strings=c(""," ","NA"))
+test <- read.csv("pml-testing.csv", header=TRUE, na.strings=c(""," ","NA"))
+dim(train)
+summary(train$classe)
+```
+
+#Data preparation
+
+On viewing a sample of the data the first 7 columns do not seem relevant for predicting "classe". Since there's no intention of performing a time series analysis, variables with timestamp can be removed. There were also many columns found with no data in them which were removed.
+
+```{r, echo=FALSE, warning=FALSE, message=FALSE}
+library(caret)
+train1 <- train[,colSums(is.na(train)) < 1000] #Removing columns with NA
+train2 <- train1[,8:60] #Removing first 7 columns
+
+test1 <- test[,colSums(is.na(test)) < 20]
+test2 <- test1[,8:60]
+```
+
+Exploring the data - a pairwise scatterplot matrix of 3 variables.
+
+```{r, echo=FALSE, warning=FALSE, message=FALSE}
+colSelection<- c("roll_arm", "pitch_arm","yaw_arm")
+featurePlot(x=train2[,colSelection],y = train2$classe,plot="pairs")
+```
+
+Plotting a couple variables separately to explore the data further. 
+
+```{r, echo=FALSE, warning=FALSE, message=FALSE}
+qplot(roll_arm, yaw_arm, colour=classe, data=train2)
+qplot(roll_belt, yaw_belt, colour=classe, data=train2)
+```
+
+There are too many variables in the data to study them individually and the plots did not help find the most promising predictors.
+
+#Data splitting
+
+The data set is split into train and test sets using createDataPartition which balances the split thereby preserving the overall class distribution of the data. The models are then built on the training set and the test set is used for prediction.
+
+```{r, echo=FALSE,warning=FALSE, message=FALSE}
+set.seed(1255)
+#Creating a data partition for the training and testing set
+inTrain <- createDataPartition(y=train2$classe, p=0.7, list=FALSE)
+training <- train2[inTrain,]
+testing <- train2[-inTrain,]
+```
+
+#Principal Component Analysis
+
+Since there are a large number of predictors, as a first step PCA was used to reduce the number of predictors and pick a combination that captures the most information possible.
+
+```{r, echo=FALSE, warning=FALSE, message=FALSE}
+#Checking the number of components needed to capture 80% of the variance 
+preProc <- preProcess(training[,1:52], method=c("BoxCox","center","scale","pca"), thresh=0.8)
+preProc
+trainPC <- predict(preProc, training)
+modFitPC <- train(training$classe~., method="rf",data=trainPC)
+testPC <- predict(preProc, testing)
+confusionMatrix(testPC$classe, predict(modFitPC, testPC))
+```
+
+At a threshold of 80% there were 12 principal components selected. The Confusion Matrix shows an accuracy of 95% which is good but maybe using random forests will result in better accuracy. 
+
+#Random Forests
+
+The random forest model fits a number of decision tree classifiers on various sub-samples of the dataset and uses averaging to improve the predictive accuracy and control over-fitting
+
+```{r, echo=FALSE,warning=FALSE, message=FALSE}
+library(randomForest)
+set.seed(415)
+modelFit <- randomForest(classe~., data=training)
+modelFit
+```
+
+Here's a look at the variables that were important.
+
+```{r, echo=FALSE, warning=FALSE, message=FALSE}
+varImpPlot(modelFit)
+```
+
+Checking the accuracy of the model using the testing data:
+
+```{r, echo=FALSE,warning=FALSE, message=FALSE}
+prediction <- predict(modelFit, testing)
+testing$rightPred <- prediction == testing$classe
+t <- table(prediction, testing$classe)
+print(t)
+accuracy <- sum(testing$rightPred)/nrow(testing)
+accuracy
+```
+
+At an accuracy of 99% the random forest model performed better than using the principal components.
+
+#Predicting the test cases
+
+```{r, echo=FALSE,  warning=FALSE, message=FALSE}
+prediction <- predict(modelFit, test2)
+prediction
+```
